@@ -1,13 +1,16 @@
 #pragma once
 #include<iostream>
 #include<vector>
+#include<algorithm>
 #include<time.h>
 #include<assert.h>
 using std::cout;
 using std::endl;
 
 static const size_t MAX_BYTES = 64 * 1024;	//最大页64k
-static const size_t NFREELISTS = 184;		//freeList范围
+static const size_t NLISTS = 184;		//freeList范围[0, 184] 184个桶
+static const size_t NPAGES = 129;
+
 
 //获取下一个链表节点
 inline void*& NextObj(void* obj)
@@ -15,13 +18,17 @@ inline void*& NextObj(void* obj)
 	return *((void**)obj);
 }
 
-//映射自由链表的位置,static?
+//1. 映射自由链表的位置
 static size_t Index(size_t size)
 {
-	return ((size + (2 ^ 3 - 1)) >> 3) - 1;	//等价于(size + 7)/8 -1
+	//等价于(size + 7)/8 -1  
+	//例如8字节的index = (8 + 7) >> 3 = 15/8 = 1
+	//这样的话就可以将[1, 8]全部映射在[8, 15]之间
+	//可以不通过除或模运算就能计算出size映射在哈希桶的位置
+	return ((size + (2 ^ 3 - 1)) >> 3) - 1;	
 }
 
-//管理对其和映射的关系
+//管理对齐和映射的关系
 class SizeClass
 {
 public:
@@ -30,6 +37,8 @@ public:
 	// [129,1024]				16byte对齐		 freelist[16,72)
 	// [1025,8*1024]			128byte对齐	     freelist[72,128)
 	// [8*1024+1,64*1024]		1024byte对齐     freelist[128,184)
+
+	//1. 映射自由链表的位置
 	static inline size_t _Index(size_t bytes, size_t align_shift)
 	{
 		return ((bytes + (1 << align_shift - 1)) >> align_shift) - 1;
@@ -41,7 +50,9 @@ public:
 		assert(bytes <= MAX_BYTES);
 
 		// 每个区间有多少个链
+		// 计算哪一个桶，自由链表桶划分了4个区间，每个区间个数{ 16, 56, 56, 56 }
 		static int group_array[4] = { 16, 56, 56, 56 };
+		//[]
 		if (bytes <= 128) {
 			return _Index(bytes, 3);
 		}
@@ -66,6 +77,7 @@ public:
 		if (size == 0)
 			return 0;
 		//控制在[2, 512]
+		//
 		int num = MAX_BYTES / size;
 		if (num < 2)
 			num = 2;
@@ -76,11 +88,15 @@ public:
 	}
 	
 	//计算一次向系统获取几个页
+	//单个对象 8byte
+	//...
+	//单个对象64KB
 	static size_t NumMovePage(size_t size)
 	{
 		size_t num = NumMoveSize(size);
 		size_t npage = num * size;
 
+		//  除以4KB即右移12位算出需要多少页
 		npage >>= 12;
 		if (npage == 0)
 			npage = 1;
@@ -94,6 +110,12 @@ public:
 class FreeList
 {
 public:
+	//push一个范围的对象
+	void PushRange(void* start, void* end, int n)
+	{
+
+	}
+
 	//判断链表是否为空
 	bool Empty() const
 	{
@@ -127,7 +149,7 @@ public:
 	}
 private:
 	void* _head = nullptr;	//头节点
-	size_t _max_size = 1;	//??
+	size_t _max_size = 1;	//
 };
 
 /*
@@ -136,23 +158,25 @@ private:
 *
 */
 
-//2^32/2^12  2^64/2^12
+//2^32/2^12  
+//2^64/2^12
 typedef size_t PageID;
 
 struct Span
 {
 	PageID _pageId;		//页号
-	size_t n;			//页的数量
+	size_t _n;			//页的数量
 
-	//双向链表
+	//span双向链表
 	Span* _next = nullptr;
 	Span* _prev = nullptr;	
 
 	void* _memory = nullptr;
 	size_t _usecount = 0;	//使用计数， ==0说明对象全部回收
-	size_t _objsize = 0;		//切出来的单个对象大小
+	size_t _objsize = 0;		//切出来的单个对象大小,针对一个定长大小
 };
 
+//spanList是一个双向链表
 class SpanList
 {
 public:
