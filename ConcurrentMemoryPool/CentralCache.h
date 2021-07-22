@@ -9,8 +9,11 @@ public:
 
 	//从SpanList或者page cache中获取一个span
 	Span* GetOneSpan(SpanList& list, size_t byte_size);
+
+	// 将一定数量的对象释放到span跨度
+	void ReleaseListToSpans(void* start, size_t byte_size);
 private:
-	SpanList _spanLists[NLISTS];	//按对齐方式映射
+	SpanList _spanLists[NLISTS];	//按对齐方式映射，把每一个span挂起来
 };
 
-CentralCache centralCache;
+static CentralCache centralCache;
