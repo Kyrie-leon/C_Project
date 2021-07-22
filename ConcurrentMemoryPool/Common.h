@@ -10,7 +10,13 @@ using std::endl;
 static const size_t MAX_BYTES = 64 * 1024;	//最大页64k
 static const size_t NLISTS = 184;		//freeList范围[0, 184] 184个桶
 static const size_t NPAGES = 129;
+static const size_t PAGE_SHIFT = 12;
 
+#ifdef  _WIN32
+#include<windows.h>
+#else
+//
+#endif
 
 //获取下一个链表节点
 inline void*& NextObj(void* obj)
@@ -76,8 +82,8 @@ public:
 	{
 		if (size == 0)
 			return 0;
-		//控制在[2, 512]
-		//
+		//控制在[2, 512]，一次批量移动多少个对象的上限值
+		//单个对象越小num越大，单个对象越大num越小，不至于造成太多浪费
 		int num = MAX_BYTES / size;
 		if (num < 2)
 			num = 2;
@@ -110,8 +116,15 @@ public:
 class FreeList
 {
 public:
-	//push一个范围的对象
+	//push一个范围的对象,将一串内存链表挂进来
 	void PushRange(void* start, void* end, int n)
+	{
+		NextObj(end) = _head;
+		_head = start;
+		_size += n;		//插入一批内存，size+n
+	}
+
+	void PopRange(void*& start, void*& end, int n)
 	{
 
 	}
@@ -127,6 +140,7 @@ public:
 	{
 		NextObj(obj) = _head;	//obj->next
 		_head = obj;	//_head->obj->next
+		++_size;
 	}
 
 	//头删
@@ -134,8 +148,14 @@ public:
 	{
 		void* obj = _head;
 		_head = NextObj(_head);
+		--_size;
 
 		return obj;
+	}
+
+	size_t Size()
+	{
+		return _size;
 	}
 
 	size_t MaxSize()
@@ -149,12 +169,13 @@ public:
 	}
 private:
 	void* _head = nullptr;	//头节点
-	size_t _max_size = 1;	//
+	size_t _max_size = 1;
+	size_t _size = 0;		//用于回收
 };
 
 /*
 *	Span 管理一个大跨度的内存
-*
+*	以页为单位的大块内存
 *
 */
 
@@ -164,16 +185,16 @@ typedef size_t PageID;
 
 struct Span
 {
-	PageID _pageId;		//页号
-	size_t _n;			//页的数量
+	PageID _pageId;		//页号，方便合并
+	size_t _n;			//页的数量，span内存4nK
 
 	//span双向链表
 	Span* _next = nullptr;
 	Span* _prev = nullptr;	
 
-	void* _memory = nullptr;
+	void* _list = nullptr;	//大块内存切小链接起来，方便回收
 	size_t _usecount = 0;	//使用计数， ==0说明对象全部回收
-	size_t _objsize = 0;		//切出来的单个对象大小,针对一个定长大小
+	size_t _objsize = 0;	//切出来的单个对象大小,针对一个定长大小
 };
 
 //spanList是一个双向链表
@@ -183,7 +204,7 @@ public:
 	//构造函数
 	SpanList()
 	{
-		_head = nullptr;
+		_head = new Span;
 		_head->_prev = _head;
 		_head->_next = _head;
 	}
@@ -226,3 +247,25 @@ public:
 private:
 	Span* _head;	//头节点
 };
+
+inline static void* SystemAlloc(size_t kpage)
+{
+#ifdef _WIN32
+	void* ptr = VirtualAlloc(0, kpage*(1 << PAGE_SHIFT),
+		MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+#else
+	// brk mmap等
+#endif
+	if (ptr == nullptr)
+		throw std::bad_alloc();
+	return ptr;
+}
+
+inline static void SystemFree(void* ptr)
+{
+#ifdef _WIN32
+	VirtualFree(ptr, 0, MEM_RELEASE);
+#else
+	// sbrk unmmap等
+#endif
+}
