@@ -11,12 +11,13 @@ void* ConcurrentAlloc(size_t size)
 	//保证多线程安全，使用TLS技术，线程安全的
 	if (size > MAX_BYTES)
 	{
-
+		//PageCache
 	}
 	else
 	{
 		if (tls_threadcache == nullptr)
 		{
+			//存在堆上，对象池解决
 			tls_threadcache = new ThreadCache;
 		}
 
