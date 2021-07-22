@@ -3,10 +3,10 @@
 //向系统申请k页内存
 void* PageCache::SystemAllocPage(size_t k)
 {
-
+	return ::SystemAlloc(k);
 }
 
-//从PageCache中申请一个span出来
+//从PageCache中申请一个k页span出来
 Span* PageCache::NewSpan(size_t k)
 {
 	//1.先找PageCache中k页的spanlist是否为空
@@ -27,14 +27,18 @@ Span* PageCache::NewSpan(size_t k)
 			//切出i-k页挂回自由链表
 		if (!_spanList[i].Empty())
 		{
+			//找到的span先从spanlist中删除
 			Span* span = _spanList[i].Begin();
 			_spanList[i].Erase(span);
+			//span被切分出两个span 和spiltspan
 			Span* splitSpan = new Span;
+			//splitspan的page从_pageId+k开始
 			splitSpan->_pageId = span->_pageId + k;
+			//页的数量-k
 			splitSpan->_n = span->_n - k;
 
 			span->_n = k;
-
+			//切分出来的spiltspan插入到spanlist
 			_spanList[splitSpan->_n].Insert(_spanList[splitSpan->_n].Begin(), splitSpan);
 
 			return span;
