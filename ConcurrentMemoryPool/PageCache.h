@@ -12,4 +12,4 @@ private:
 	SpanList _spanList[NPAGES];	//°´Ò³ÊıÓ³Éä
 };
 
-PageCache pageCache;
+static PageCache pageCache;
