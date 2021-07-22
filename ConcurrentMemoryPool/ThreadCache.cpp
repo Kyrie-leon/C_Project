@@ -5,8 +5,8 @@
 void* ThreadCache::FetchFromCentralCache(size_t i, size_t size)
 {
 	//1.获取一批对象，数量使用慢启动方式，每次去中心缓存取要加锁效率太低，因此获取一批对象
-	//NumMoveSize和MaxSize取最小值
-	size_t batchNum = std::min(SizeClass::NumMoveSize(size), _freeLists[i].MaxSize());
+	//NumMoveSize和MaxSize取最小值，NumMoveSize是上限值
+	size_t batchNum = min(SizeClass::NumMoveSize(size), _freeLists[i].MaxSize());
 
 	//2.计算出batchNum后去中心缓存获取一批内存
 	void* start = nullptr;	
@@ -16,6 +16,7 @@ void* ThreadCache::FetchFromCentralCache(size_t i, size_t size)
 	assert(actualNum > 0);
 
 	//		i. actualNum>1, 返回一个内存，将剩下挂到自由链表
+	//						如果一次申请多个，剩下的挂起来不需要到中心缓存申请内存，减少锁竞争，提高效率
 	if (actualNum > 1)
 	{
 		//将一批对象的第一个start返回，start后面即NextObj(start)插入到自由链表中
@@ -59,6 +60,20 @@ void* ThreadCache::Allocate(size_t size)
 
 }
 
+
+//链表太长会受到中心缓存
+void ListTooLong(FreeList& list, size_t size)
+{
+	size_t batchNum = list.MaxSize();
+	void* start = nullptr;
+	void* end = nullptr;
+	//先从freeList链表上取下来
+	list.PopRange(start, end, batchNum);
+	//回收到中心缓存
+	centralCache.ReleaseListToSpans(start, size);
+}
+
+
 void ThreadCache::Deallocate(void* ptr, size_t size)
 {
 	//释放回来后算在哪一个位置插入进去就可以了
@@ -66,4 +81,11 @@ void ThreadCache::Deallocate(void* ptr, size_t size)
 	_freeLists[i].Push(ptr);
 
 	//如果链表太长释放回收到中心缓存
+	if (_freeLists[i].Size() > _freeLists[i].MaxSize())
+	{
+		ListTooLong(_freeLists[i], size);
+	}
 }
+
+
+
