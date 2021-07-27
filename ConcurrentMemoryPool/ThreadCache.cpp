@@ -12,7 +12,8 @@ void* ThreadCache::FetchFromCentralCache(size_t i, size_t size)
 	void* start = nullptr;	
 	void* end = nullptr;
 	//	a. actualNum表示真实返回的个数,中心缓存提供的内存有可能小于需要的内存
-	size_t actualNum = centralCache.FetchRangeObj(start, end, batchNum, size);
+	//		注意：这里将size对齐再传过去
+	size_t actualNum = CentralCache::GetInstance()->FetchRangeObj(start, end, batchNum, SizeClass::RoundUp(size));
 	assert(actualNum > 0);
 
 	//		i. actualNum>1, 返回一个内存，将剩下挂到自由链表
@@ -38,41 +39,20 @@ void* ThreadCache::Allocate(size_t size)
 	//2.计算size是否大于64K-MAXBYETS
 	//	a.大于64K去PageCache申请内存
 	//	b.小于64K从ThreadCache中申请
-	if (size > MAX_BYTES)
-	{
-		//PageCache申请内存
-	}
-	else
-	{
 		//3.向ThreadCache自由链表申请内存
 		//	a.不为空直接将内存从自由链表中切出来返回
 		//  b.为空从中心缓存获取
-		if (!_freeLists[i].Empty())
-		{
-			return _freeLists[i].Pop();
-		}
-		else
-		{
-			//从CentralCache获取内存采用慢启动方式
-			return FetchFromCentralCache(i, size);
-		}
+	if (!_freeLists[i].Empty())
+	{
+		return _freeLists[i].Pop();
+	}
+	else
+	{
+		//从CentralCache获取内存采用慢启动方式
+		return FetchFromCentralCache(i, size);
 	}
 
 }
-
-
-//链表太长会受到中心缓存
-void ListTooLong(FreeList& list, size_t size)
-{
-	size_t batchNum = list.MaxSize();
-	void* start = nullptr;
-	void* end = nullptr;
-	//先从freeList链表上取下来
-	list.PopRange(start, end, batchNum);
-	//回收到中心缓存
-	centralCache.ReleaseListToSpans(start, size);
-}
-
 
 void ThreadCache::Deallocate(void* ptr, size_t size)
 {
@@ -81,11 +61,22 @@ void ThreadCache::Deallocate(void* ptr, size_t size)
 	_freeLists[i].Push(ptr);
 
 	//如果链表太长释放回收到中心缓存
-	if (_freeLists[i].Size() > _freeLists[i].MaxSize())
+	if (_freeLists[i].Size() >= _freeLists[i].MaxSize())
 	{
 		ListTooLong(_freeLists[i], size);
 	}
 }
 
-
+//链表太长回收到中心缓存
+void ThreadCache::ListTooLong(FreeList& list, size_t size)
+{
+	//计算回收的大小
+	size_t batchNum = list.MaxSize();
+	void* start = nullptr;
+	void* end = nullptr;
+	//先从freeList链表上取下来获取到头尾结点的地址
+	list.PopRange(start, end, batchNum);
+	//回收到中心缓存
+	CentralCache::GetInstance()->ReleaseListToSpans(start, size);
+}
 
