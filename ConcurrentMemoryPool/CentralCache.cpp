@@ -21,7 +21,28 @@ Span* CentralCache::GetOneSpan(SpanList& list, size_t size)
 
 	// 走到这里代表着span都没有内存了，b情况，只能找pagecache
 	//通过NumMovePage算需要多少页
-	return PageCache::GetInstance()->NewSpan(SizeClass::NumMovePage(size));
+	Span* span = PageCache::GetInstance()->NewSpan(SizeClass::NumMovePage(size));
+	/********************************************************
+	*********************************************************
+	*********************************************************/
+	// 切分好挂在list中
+	char* start = (char*)(span->_pageId << PAGE_SHIFT);
+	char* end = start + (span->_n << PAGE_SHIFT);
+	//存在问题：不一定刚好切分size的对象
+	while (start < end)
+	{
+		char* next = start + size;
+		// 头插
+		NextObj(start) = span->_list;
+		span->_list = start;
+
+		start = next;
+	}
+	span->_objsize = size;
+
+	list.PushFront(span);
+
+	return span;
 }
 
 //给ThreadCache提供内存
@@ -30,6 +51,7 @@ size_t CentralCache::FetchRangeObj(void*& start, void*& end, size_t n, size_t si
 	//1.先算对应的位置
 	size_t index = SizeClass::Index(size);
 	//2.从centralCache中取span
+	std::lock_guard<std::mutex> lock(_spanLists[index]._mtx);
 	Span* span = GetOneSpan(_spanLists[index], size);
 
 	// 切分span,有可能span只有list，所以让start和end都指向span->_list
@@ -60,6 +82,7 @@ void CentralCache::ReleaseListToSpans(void* start, size_t byte_size)
 {
 	//1.计算映射下标
 	size_t i = SizeClass::Index(byte_size);
+	std::lock_guard<std::mutex> lock(_spanLists[i]._mtx);
 
 	while (start)
 	{
