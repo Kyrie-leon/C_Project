@@ -1,7 +1,7 @@
 BIN=http_server
 SRC=main.cc
 CC=g++
-FLAGS=-std=c++11
+FLAGS=-std=c++11 -lpthread -DDEBUG
 
 $(BIN):$(SRC)
 	$(CC) -o $@ $^ $(FLAGS)
