@@ -1,6 +1,8 @@
 #pragma once
 #include<unistd.h>
+#include<pthread.h>
 #include"Sock.hpp"
+#include"Protocol.hpp"
 
 #define PORT 8081
 
@@ -33,9 +35,12 @@ class HttpServer
         {
           continue;
         }
+        LOG(Notice, "get a new link...");
 
         pthread_t tid;
-        int *sock
+        int *sockp = new int(sock);
+        pthread_create(&tid, nullptr, Entry::HandlerHttp, sockp);
+        pthread_detach(tid);
       }
     }
 
