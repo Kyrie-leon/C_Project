@@ -3,6 +3,9 @@
 
 int main(int argc, char* argv[])
 {
-  LOG(Fatal, "test Fatal");  
+  HttpServer* svr = new HttpServer();
+  svr->InitServer();
+  svr->Start();
+
   return 0;
 }
