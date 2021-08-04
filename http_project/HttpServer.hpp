@@ -20,6 +20,7 @@ class HttpServer
     void InitServer()
     {
       lsock = Sock::Socket();
+      Sock::SetSockOpt(lsock);
       Sock::Bind(lsock, port);
       Sock::Listen(lsock);
 
